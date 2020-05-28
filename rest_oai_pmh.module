@@ -291,6 +291,12 @@ function rest_oai_pmh_remove_set($set_id) {
  * @todo queue this?
  */
 function rest_oai_pmh_remove_record($entity_type, $entity_id, $set_id = FALSE) {
+  if (!is_numeric($entity_id)) {
+    // XXX: This can blow up if we're dealing with an entity with a non-integer
+    // ID, such as config entities... happens on PostgreSQL, at least.
+    return;
+  }
+
   if ($set_id) {
     $args = [
       ':set_id' => $set_id,
