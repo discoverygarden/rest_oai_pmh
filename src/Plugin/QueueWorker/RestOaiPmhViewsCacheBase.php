@@ -2,6 +2,7 @@
 
 namespace Drupal\rest_oai_pmh\Plugin\QueueWorker;
 
+use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -11,6 +12,8 @@ use Drupal\views\Views;
  * Abstract class to implement an OAI cache queue worker.
  */
 abstract class RestOaiPmhViewsCacheBase extends QueueWorkerBase implements ContainerFactoryPluginInterface {
+
+  use DependencySerializationTrait;
 
   /**
    * A connection to Drupal's database.

@@ -2,16 +2,20 @@
 
 namespace Drupal\rest_oai_pmh\Form;
 
+use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Queue\QueueFactory;
 use Drupal\Core\Queue\QueueWorkerManagerInterface;
+use Drupal\rest_oai_pmh\Utility\ConsumeBatch;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Rebuild the OAI cache.
  */
 class OaiPmhQueueForm extends FormBase {
+
+  use DependencySerializationTrait;
 
   /**
    * The queue factory.
@@ -41,7 +45,7 @@ class OaiPmhQueueForm extends FormBase {
   public static function create(ContainerInterface $container) {
     return new static(
           $container->get('queue'),
-          $container->get('plugin.manager.queue_worker')
+          $container->get('plugin.manager.queue_worker'),
       );
   }
 
@@ -75,17 +79,14 @@ class OaiPmhQueueForm extends FormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
     rest_oai_pmh_cache_views();
-
-    $queue = \Drupal::service('queue')->get('rest_oai_pmh_views_cache_cron');
-    $operations = [];
-    while ($item = $queue->claimItem()) {
-      $operations[] = [
-        'rest_oai_pmh_process_queue',
-        [$item],
-      ];
-    }
+    $consume_batch = new ConsumeBatch($this->queueFactory, $this->queueManager);
     $batch = [
-      'operations' => $operations,
+      'operations' => [
+        [
+          [$consume_batch, 'rebuildBatchOperation'],
+          [],
+        ],
+      ],
       'finished' => 'rest_oai_pmh_batch_finished',
       'title' => $this->t('Processing OAI rebuild'),
       'init_message' => $this->t('OAI rebuild is starting.'),

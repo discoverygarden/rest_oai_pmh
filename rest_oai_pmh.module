@@ -5,6 +5,8 @@
  * Contains rest_oai_pmh.module.
  */
 
+use Drupal\rest_oai_pmh\Utility\GenerateBatch;
+use Drupal\views\Plugin\views\ViewsHandlerInterface;
 use Drupal\views\Views;
 use Drupal\Core\Url;
 use Drupal\Core\Routing\RouteMatchInterface;
@@ -89,7 +91,7 @@ function rest_oai_pmh_entity_alter($entity, $op = '') {
 /**
  * Create QueueWorker to execute all, or a specific set of Views.
  */
-function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oai_pmh_views_cache_cron') {
+function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oai_pmh_views_cache_cron', $batch = FALSE) {
   // Get the queue factory.
   $queue_factory = \Drupal::service('queue');
   $queue = $queue_factory->get($queue_name);
@@ -112,147 +114,176 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
       \Drupal::database()->truncate($table)->execute();
     }
   }
+  if ($batch) {
+    $batch_class = new GenerateBatch($queue_factory, $queue_name);
+    $batch_class->generateFromDisplayBatch($view_displays);
+  }
+  else {
+    foreach ($view_displays as $view_display) {
+      [$view_id, $display_id] = explode(':', $view_display);
+      $view = Views::getView($view_id);
+      $view->setDisplay($display_id);
 
-  foreach ($view_displays as $view_display) {
-    [$view_id, $display_id] = explode(':', $view_display);
-    $view = Views::getView($view_id);
-    $view->setDisplay($display_id);
+      $has_sets = FALSE;
 
-    $has_sets = FALSE;
-
-    // Go through all the contextual filters for this View display.
-    foreach ($view->display_handler->getHandlers('argument') as $contextual_filter) {
-      $definition = $contextual_filter->definition;
-      $set_entity_type = FALSE;
-
-      // Look at the contextual filter definition
-      // and see if it looks like an entity reference field.
-      $entity_type = empty($definition['entity_type']) ? FALSE : $definition['entity_type'];
-      $table = $definition['table'];
-      $field = $definition['field_name'];
-      $column = $definition['field'];
-
-      // If we know the entity type of the view is querying,
-      // and the field is referencing another entity
-      // load the referenced entity's field storage
-      // to find what type of entity reference is for.
-      if ($entity_type && $column === $field . '_target_id') {
-        $field_storage = \Drupal::service('entity_field.manager')
-          ->getFieldStorageDefinitions($entity_type);
-        if (isset($field_storage[$field])) {
-          $set_entity_type = $field_storage[$field]->getSetting('target_type');
-        }
-      }
-
-      // If the contextual filter is of an entity reference field.
-      if ($set_entity_type) {
-        // See what sort of entity is exposed
-        // and see what table it's stored in
-        // e.g. $entity = 'node' if $definition['entity_type'] === 'node'.
-        $set_entity_storage = \Drupal::entityTypeManager()->getStorage($set_entity_type);
-        $set_entity_table = $set_entity_storage->getBaseTable();
-
-        // Get the table where the data for the entity reference is stored
-        // e.g. if the field name is "field_member" and entity_type is "node"
-        // $field_table = 'node__field_member';.
-        $field_table = $entity_type . '__' . $field;
-
-        // Get the database column that stores the entity's key property.
-        $id = $set_entity_storage->getEntityType()->getKey('id');
-        // This is what we'll perform our JOIN on
-        // $column is the field that the contextual reference queries on
-        // so for field_member $column = 'field_member_target_id';.
-        $condition = $column . ' = ' . $id;
-
-        // Find entities that had at least one record referencing the entity
-        // in the field defined on the contextual filter.
-        $query = \Drupal::database()->select($set_entity_table, 'entity');
-        $query->innerJoin($field_table, 'f', $condition);
-        $query->addField('entity', $id);
-        $query->groupBy($id);
-
-        // Make each entity found that's referenced a set in OAI.
-        $ids = $query->execute()->fetchCol();
-        foreach ($ids as $id) {
-          $entity = $set_entity_storage->load($id);
-          if ($entity) {
-            $has_sets = TRUE;
-            $data = [
-              'view_id' => $view_id,
-              'display_id' => $display_id,
-              'arguments' => [$entity->id()],
-              'set_entity_type' => $set_entity_type,
-              'set_id' => $set_entity_type . ':' . $entity->id(),
-              'set_label' => $entity->label(),
-              'view_display' => $view_display,
-            ];
-            // Load the View and apply the display ID.
-            $view = Views::getView($view_id);
-            $view->setDisplay($display_id);
-            $view->get_total_rows = TRUE;
-            $view->getDisplay()->setOption('entity_reference_options', ['limit' => $view->getItemsPerPage()]);
-            // Get the first set of results from the View.
-            $members = $view->executeDisplay($display_id, $data['arguments']);
-            // After we executed the View, see how many items were returned
-            // use this to page through all results.
-            $data['limit'] = $view->getItemsPerPage();
-            $total = $view->total_rows;
-            $offset = 0;
-            while ($total > 0) {
-              $data['offset'] = $offset;
-              // Queue the information we found to be processed by the queue.
-              $queue->createItem($data);
-              if ($data['limit'] <= 0) {
-                break;
-              }
-              $total -= $data['limit'];
-              $offset += $data['limit'];
+      // Go through all the contextual filters for this View display.
+      foreach ($view->display_handler->getHandlers('argument') as $contextual_filter) {
+        [
+          $set_entity_type,
+          $set_entity_storage,
+          $query,
+        ] = rest_oai_pmh_determine_set_inclusion($contextual_filter);
+        if ($set_entity_type) {
+          // Make each entity found that's referenced a set in OAI.
+          $ids = $query->execute()->fetchCol();
+          foreach ($ids as $id) {
+            $entity = $set_entity_storage->load($id);
+            if ($entity) {
+              $has_sets = TRUE;
+              $data = [
+                'view_id' => $view_id,
+                'display_id' => $display_id,
+                'arguments' => [$entity->id()],
+                'set_entity_type' => $set_entity_type,
+                'set_id' => $set_entity_type . ':' . $entity->id(),
+                'set_label' => $entity->label(),
+                'view_display' => $view_display,
+              ];
+              rest_oai_pmh_create_entry_in_queue($queue, $data);
             }
           }
         }
       }
-    }
 
-    // If no contextual filter was found for this View
-    // use all the View results as a single set for OAI-PMH
-    // and make the set's name/id based off the View.
-    if (!$has_sets) {
-      $view_storage = \Drupal::entityTypeManager()->getStorage('view');
-      $view = $view_storage->load($view_id);
-      $display = $view->get('display');
-      $data = [
-        'view_id' => $view_id,
-        'display_id' => $display_id,
-        'arguments' => [],
-        'set_entity_type' => 'view',
-        'set_id' => $view_display,
-        'set_label' => $display[$display_id]['display_title'],
-        'view_display' => $view_display,
-      ];
-
-      // Load the View and apply the display ID.
-      $view = Views::getView($view_id);
-      $view->setDisplay($display_id);
-      $view->getDisplay()->setOption('entity_reference_options', ['limit' => $view->getItemsPerPage()]);
-      $view->get_total_rows = TRUE;
-      // Get the first set of results from the View.
-      $members = $view->executeDisplay($display_id);
-      // After we executed the View, we'll know how many items were returned
-      // use this to page through all results.
-      $data['limit'] = $view->getItemsPerPage();
-      $total = $view->total_rows;
-      $offset = 0;
-      while ($total > 0) {
-        $data['offset'] = $offset;
-        // Queue the information we found to be processed by the queue.
-        $queue->createItem($data);
-        if ($data['limit'] <= 0) {
-          break;
-        }
-        $total -= $data['limit'];
-        $offset += $data['limit'];
+      // If no contextual filter was found for this View
+      // use all the View results as a single set for OAI-PMH
+      // and make the set's name/id based off the View.
+      if (!$has_sets) {
+        $view_storage = \Drupal::entityTypeManager()->getStorage('view');
+        $view = $view_storage->load($view_id);
+        $display = $view->get('display');
+        $data = [
+          'view_id' => $view_id,
+          'display_id' => $display_id,
+          'arguments' => [],
+          'set_entity_type' => 'view',
+          'set_id' => $view_display,
+          'set_label' => $display[$display_id]['display_title'],
+          'view_display' => $view_display,
+        ];
+        rest_oai_pmh_create_entry_in_queue($queue, $data);
       }
     }
+  }
+}
+
+/**
+ * Helper that determines if there sets supported by a display.
+ *
+ * @param \Drupal\views\Plugin\views\ViewsHandlerInterface $contextual_filter
+ *   The contextual filter being evaluated.
+ *
+ * @return array
+ *   An array containing the following:
+ *   - set_entity_type: The entity type of the set.
+ *   - set_entity_storage: The storage of the set.
+ *   - query: The query to find the set.
+ */
+function rest_oai_pmh_determine_set_inclusion(ViewsHandlerInterface $contextual_filter) {
+  $definition = $contextual_filter->definition;
+  $set_entity_type = FALSE;
+  $set_entity_storage = FALSE;
+  $query = FALSE;
+
+  // Look at the contextual filter definition
+  // and see if it looks like an entity reference field.
+  $entity_type = empty($definition['entity_type']) ? FALSE : $definition['entity_type'];
+  $field = $definition['field_name'];
+  $column = $definition['field'];
+
+  // If we know the entity type of the view is querying,
+  // and the field is referencing another entity
+  // load the referenced entity's field storage
+  // to find what type of entity reference is for.
+  if ($entity_type && $column === $field . '_target_id') {
+    $field_storage = \Drupal::service('entity_field.manager')
+      ->getFieldStorageDefinitions($entity_type);
+    if (isset($field_storage[$field])) {
+      $set_entity_type = $field_storage[$field]->getSetting('target_type');
+    }
+  }
+
+  // If the contextual filter is of an entity reference field.
+  if ($set_entity_type) {
+    // See what sort of entity is exposed
+    // and see what table it's stored in
+    // e.g. $entity = 'node' if $definition['entity_type'] === 'node'.
+    $set_entity_storage = \Drupal::entityTypeManager()
+      ->getStorage($set_entity_type);
+    $set_entity_table = $set_entity_storage->getBaseTable();
+
+    // Get the table where the data for the entity reference is stored
+    // e.g. if the field name is "field_member" and entity_type is "node"
+    // $field_table = 'node__field_member';.
+    $field_table = $entity_type . '__' . $field;
+
+    // Get the database column that stores the entity's key property.
+    $id = $set_entity_storage->getEntityType()->getKey('id');
+    // This is what we'll perform our JOIN on
+    // $column is the field that the contextual reference queries on
+    // so for field_member $column = 'field_member_target_id';.
+    $condition = $column . ' = ' . $id;
+
+    // Find entities that had at least one record referencing the entity
+    // in the field defined on the contextual filter.
+    $query = \Drupal::database()->select($set_entity_table, 'entity');
+    $query->innerJoin($field_table, 'f', $condition);
+    $query->addField('entity', $id);
+    $query->groupBy($id);
+  }
+  return [
+    $set_entity_type,
+    $set_entity_storage,
+    $query,
+  ];
+}
+
+/**
+ * Creates a queue item for each set of results from a view to generate records.
+ *
+ * @param \Drupal\Core\Queue\QueueInterface $queue
+ *   The queue being populated.
+ * @param array $data
+ *   An array containing the following:
+ *     - view_id: The ID of the view to be processed.
+ *     - display_id: The display ID of the view to be processed.
+ *     - arguments: An array of arguments to be passed to the view.
+ *     - set_entity_type: The entity type of the set.
+ *     - set_id: The ID of the set.
+ *     - set_label: The label of the set.
+ *     - view_display: The display ID of the view.
+ */
+function rest_oai_pmh_create_entry_in_queue($queue, $data) {
+  $view = Views::getView($data['view_id']);
+  $view->setDisplay($data['display_id']);
+  $view->get_total_rows = TRUE;
+  $view->getDisplay()->setOption('entity_reference_options', ['limit' => $view->getItemsPerPage()]);
+  // Get the first set of results from the View.
+  $view->executeDisplay($data['display_id'], $data['arguments']);
+  // After we executed the View, see how many items were returned
+  // use this to page through all results.
+  $data['limit'] = $view->getItemsPerPage();
+  $total = $view->total_rows;
+  $offset = 0;
+  while ($total > 0) {
+    $data['offset'] = $offset;
+    // Queue the information we found to be processed by the queue.
+    $queue->createItem($data);
+    if ($data['limit'] <= 0) {
+      break;
+    }
+    $total -= $data['limit'];
+    $offset += $data['limit'];
   }
 }
 

@@ -21,3 +21,7 @@ services:
     class: Drupal\rest_oai_pmh\Routing\RouteSubscriber
     tags:
       - { name: event_subscriber }
+
+  rest_oai_pmh.batch.consume_queue:
+    class: Drupal\rest_oai_pmh\Utility\ConsumeBatch
+    arguments: ['@queue', '@plugin.manager.queue_worker']
