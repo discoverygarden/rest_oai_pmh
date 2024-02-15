@@ -5,6 +5,7 @@
  * Contains rest_oai_pmh.module.
  */
 
+use Drupal\Core\Utility\Error;
 use Drupal\rest_oai_pmh\Utility\GenerateBatch;
 use Drupal\views\Plugin\views\ViewsHandlerInterface;
 use Drupal\views\Views;
@@ -115,7 +116,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
     }
   }
   if ($batch) {
-    $batch_class = new GenerateBatch($queue_factory, $queue_name);
+    $batch_class = new GenerateBatch($queue_factory, \Drupal::service('entity_type.manager'), $queue_name);
     $batch_class->generateFromDisplayBatch($view_displays);
   }
   else {
@@ -129,9 +130,9 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
       // Go through all the contextual filters for this View display.
       foreach ($view->display_handler->getHandlers('argument') as $contextual_filter) {
         [
+          $query,
           $set_entity_type,
           $set_entity_storage,
-          $query,
         ] = rest_oai_pmh_determine_set_inclusion($contextual_filter);
         if ($set_entity_type) {
           // Make each entity found that's referenced a set in OAI.
@@ -185,9 +186,9 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
  *
  * @return array
  *   An array containing the following:
+ *   - query: The query to find the set.
  *   - set_entity_type: The entity type of the set.
  *   - set_entity_storage: The storage of the set.
- *   - query: The query to find the set.
  */
 function rest_oai_pmh_determine_set_inclusion(ViewsHandlerInterface $contextual_filter) {
   $definition = $contextual_filter->definition;
@@ -242,9 +243,9 @@ function rest_oai_pmh_determine_set_inclusion(ViewsHandlerInterface $contextual_
     $query->groupBy($id);
   }
   return [
+    $query,
     $set_entity_type,
     $set_entity_storage,
-    $query,
   ];
 }
 
@@ -397,10 +398,10 @@ function rest_oai_pmh_process_queue($item) {
   }
   catch (SuspendQueueException $e) {
     $queue->releaseItem($item);
-    watchdog_exception('rest_oai_pmh', $e);
+    Error::logException(\Drupal::service('logger.channel.rest_oai_pmh'), $e);
   }
   catch (\Exception $e) {
-    watchdog_exception('rest_oai_pmh', $e);
+    Error::logException(\Drupal::service('logger.channel.rest_oai_pmh'), $e);
   }
 }
 

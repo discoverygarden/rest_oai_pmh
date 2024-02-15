@@ -21,3 +21,7 @@ services:
     class: Drupal\rest_oai_pmh\Routing\RouteSubscriber
     tags:
       - { name: event_subscriber }
+
+  logger.channel.rest_oai_pmh:
+    parent: 'logger.channel_base'
+    arguments: ['rest_oai_pmh']

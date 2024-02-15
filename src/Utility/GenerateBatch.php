@@ -2,6 +2,8 @@
 
 namespace Drupal\rest_oai_pmh\Utility;
 
+use Drupal\Core\DependencyInjection\DependencySerializationTrait;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Queue\QueueFactory;
 use Drupal\Core\Queue\QueueInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
@@ -13,6 +15,7 @@ use Drupal\views\Views;
  */
 class GenerateBatch {
 
+  use DependencySerializationTrait;
   use StringTranslationTrait;
 
   /**
@@ -23,15 +26,25 @@ class GenerateBatch {
   protected QueueInterface $queue;
 
   /**
+   * The entity type manager.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected EntityTypeManagerInterface $entityTypeManager;
+
+  /**
    * Constructs a new GenerateBatch object.
    *
    * @param \Drupal\Core\Queue\QueueFactory $queue
    *   The queue factory.
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   *   The entity type manager.
    * @param string $queue_name
    *   The name of the queue to populate.
    */
-  public function __construct(QueueFactory $queue, string $queue_name = 'rest_oai_pmh_views_cache') {
+  public function __construct(QueueFactory $queue, EntityTypeManagerInterface $entity_type_manager, string $queue_name = 'rest_oai_pmh_views_cache') {
     $this->queue = $queue->get($queue_name);
+    $this->entityTypeManager = $entity_type_manager;
   }
 
   /**
@@ -64,7 +77,7 @@ class GenerateBatch {
    * @param \DrushBatchContext|array $context
    *   The batch context.
    */
-  public function generateFromDisplayBatchOperation($view_displays, \DrushBatchContext|array &$context) {
+  public function generateFromDisplayBatchOperation($view_displays, &$context) {
     $sandbox = &$context['sandbox'];
     if (!isset($sandbox['displays'])) {
       $sandbox['displays'] = $view_displays;
@@ -124,21 +137,24 @@ class GenerateBatch {
    * @param \DrushBatchContext|array $context
    *   The batch context.
    */
-  public function findSetEntitiesBatchOperation($view_display, ViewsHandlerInterface $contextual_filter, \DrushBatchContext|array &$context) {
+  public function findSetEntitiesBatchOperation($view_display, ViewsHandlerInterface $contextual_filter, &$context) {
     $sandbox =& $context['sandbox'];
     if (!isset($sandbox['total'])) {
       $context['results']['has_sets'] = FALSE;
+      // XXX: $set_entity_storage isn't being used here as the return given
+      // best practises in batches.
+      // @see: https://www.drupal.org/project/drupal/issues/3259941.
       [
-        $set_entity_type,
-        $set_entity_storage,
         $query,
+        $set_entity_type,
       ] = rest_oai_pmh_determine_set_inclusion($contextual_filter);
-      $sandbox['query'] = $query;
       if (!$set_entity_type) {
         $context['message'] = $this->t('No sets found to process.');
         $context['finished'] = 1;
         return;
       }
+      $sandbox['set_entity_type'] = $set_entity_type;
+      $sandbox['query'] = $query;
       $total = $query->countQuery()->execute()->fetchField();
       if ($total === 0) {
         $context['message'] = $this->t('Set has no records to process.');
@@ -152,7 +168,7 @@ class GenerateBatch {
     $offset = min($sandbox['offset'], $sandbox['total'] - $sandbox['completed']);
     // Add the offset and limit to the query.
     foreach ($sandbox['query']->range($sandbox['completed'], $offset)->execute()->fetchCol() as $id) {
-      $entity = $set_entity_storage->load($id);
+      $entity = $this->entityTypeManager->getStorage($sandbox['set_entity_type'])->load($id);
       if ($entity) {
         [$view_id, $display_id] = explode(':', $view_display);
         $context['results']['has_sets'] = TRUE;
@@ -160,11 +176,18 @@ class GenerateBatch {
           'view_id' => $view_id,
           'display_id' => $display_id,
           'arguments' => [$entity->id()],
-          'set_entity_type' => $set_entity_type,
-          'set_id' => $set_entity_type . ':' . $entity->id(),
+          'set_entity_type' => $sandbox['set_entity_type'],
+          'set_id' => $sandbox['set_entity_type'] . ':' . $entity->id(),
           'set_label' => $entity->label(),
           'view_display' => $view_display,
         ];
+        $context['message'] = $this->t('Creating items batch for @set_id in @view_id:@display_id (@offset/@total)', [
+          '@set_id' => $data['set_id'],
+          '@view_id' => $view_id,
+          '@display_id' => $display_id,
+          '@offset' => $sandbox['completed'],
+          '@total' => $sandbox['total'],
+        ]);
         $this->createItemsBatch($data);
       }
     }
@@ -180,14 +203,15 @@ class GenerateBatch {
    * @param \DrushBatchContext|array $context
    *   The batch context.
    */
-  public function setLessEntitiesBatchOperation($view_display, \DrushBatchContext|array &$context) {
+  public function setLessEntitiesBatchOperation($view_display, &$context) {
     if (isset($context['results']['has_sets']) && $context['results']['has_sets'] === TRUE) {
       $context['message'] = $this->t('View display has sets, nothing to process.');
       $context['finished'] = 1;
       return;
     }
     [$view_id, $display_id] = explode(':', $view_display);
-    $view = Views::getView($view_id);
+    $view_storage = $this->entityTypeManager->getStorage('view');
+    $view = $view_storage->load($view_id);
     $display = $view->get('display');
     $data = [
       'view_id' => $view_id,
@@ -228,11 +252,11 @@ class GenerateBatch {
    * Implements callback_batch_operation() to create items for a single display.
    *
    * @param array $data
-   * *   The payload data for the job in the queue.
+   *   The payload data for the job in the queue.
    * @param \DrushBatchContext|array $context
    *   The batch context.
    */
-  public function createItemsBatchOperation(array $data, \DrushBatchContext|array &$context) {
+  public function createItemsBatchOperation(array $data, &$context) {
     $sandbox =& $context['sandbox'];
     if (!isset($sandbox['total'])) {
       $view = Views::getView($data['view_id']);
@@ -254,11 +278,21 @@ class GenerateBatch {
       $sandbox['completed'] = 0;
     }
     $data['offset'] = $sandbox['offset'];
+    $data['limit'] = $sandbox['limit'];
     // Queue the information we found to be processed by the queue.
     $this->queue->createItem($data);
+    $context['message'] = $this->t('Queued items for @set_id in @view_id:@display_id with offset @offset (@current/@total).', [
+      '@set_id' => $data['set_id'],
+      '@view_id' => $data['view_id'],
+      '@display_id' => $data['display_id'],
+      '@offset' => $data['offset'],
+      '@current' => $sandbox['completed'],
+      '@total' => $sandbox['total'],
+    ]);
     $sandbox['offset'] += $sandbox['limit'];
+
     // If there's less than the offset left use the remaining items instead.
-    $sandbox['completed'] += min($sandbox['offset'], $sandbox['total'] - $sandbox['completed']);
+    $sandbox['completed'] += min($sandbox['limit'], $sandbox['total'] - $sandbox['completed']);
     $context['finished'] = $sandbox['completed'] / $sandbox['total'];
   }
 
