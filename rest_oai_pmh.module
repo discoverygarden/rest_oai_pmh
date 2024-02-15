@@ -179,7 +179,7 @@ function rest_oai_pmh_cache_views($view_displays = FALSE, $queue_name = 'rest_oa
 }
 
 /**
- * Helper that determines if there sets supported by a display.
+ * Helper that determines if there are sets supported by a display.
  *
  * @param \Drupal\views\Plugin\views\ViewsHandlerInterface $contextual_filter
  *   The contextual filter being evaluated.

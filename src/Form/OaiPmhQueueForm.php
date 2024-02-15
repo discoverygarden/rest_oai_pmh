@@ -88,7 +88,7 @@ class OaiPmhQueueForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    rest_oai_pmh_cache_views();
+    rest_oai_pmh_cache_views(FALSE, 'rest_oai_pmh_views_cache_cron', TRUE);
     $consume_batch = new ConsumeBatch($this->queueFactory, $this->queueManager, $this->logger);
     $batch = [
       'operations' => [
