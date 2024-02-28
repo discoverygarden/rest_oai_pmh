@@ -2,10 +2,13 @@
 
 namespace Drupal\rest_oai_pmh\Form;
 
+use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Queue\QueueFactory;
 use Drupal\Core\Queue\QueueWorkerManagerInterface;
+use Drupal\rest_oai_pmh\Utility\ConsumeBatch;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -13,26 +16,36 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  */
 class OaiPmhQueueForm extends FormBase {
 
+  use DependencySerializationTrait;
+
   /**
    * The queue factory.
    *
    * @var \Drupal\Core\Queue\QueueFactory
    */
-  protected $queueFactory;
+  protected QueueFactory $queueFactory;
 
   /**
    * The queue manager.
    *
    * @var \Drupal\Core\Queue\QueueWorkerManagerInterface
    */
-  protected $queueManager;
+  protected QueueWorkerManagerInterface $queueManager;
+
+  /**
+   * The logger for the module.
+   *
+   * @var \Psr\Log\LoggerInterface
+   */
+  protected LoggerInterface $logger;
 
   /**
    * {@inheritdoc}
    */
-  public function __construct(QueueFactory $queue, QueueWorkerManagerInterface $queue_manager) {
+  public function __construct(QueueFactory $queue, QueueWorkerManagerInterface $queue_manager, LoggerInterface $logger) {
     $this->queueFactory = $queue;
     $this->queueManager = $queue_manager;
+    $this->logger = $logger;
   }
 
   /**
@@ -40,9 +53,10 @@ class OaiPmhQueueForm extends FormBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-          $container->get('queue'),
-          $container->get('plugin.manager.queue_worker')
-      );
+      $container->get('queue'),
+      $container->get('plugin.manager.queue_worker'),
+      $container->get('logger.channel.rest_oai_pmh'),
+    );
   }
 
   /**
@@ -74,21 +88,18 @@ class OaiPmhQueueForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    rest_oai_pmh_cache_views();
-
-    $queue = \Drupal::service('queue')->get('rest_oai_pmh_views_cache_cron');
-    $operations = [];
-    while ($item = $queue->claimItem()) {
-      $operations[] = [
-        'rest_oai_pmh_process_queue',
-        [$item],
-      ];
-    }
+    rest_oai_pmh_cache_views(FALSE, 'rest_oai_pmh_views_cache_cron', TRUE);
+    $consume_batch = new ConsumeBatch($this->queueFactory, $this->queueManager, $this->logger);
     $batch = [
-      'operations' => $operations,
+      'operations' => [
+        [
+          [$consume_batch, 'rebuildBatchOperation'],
+          [],
+        ],
+      ],
       'finished' => 'rest_oai_pmh_batch_finished',
-      'title' => $this->t('Processing OAI rebuild'),
-      'init_message' => $this->t('OAI rebuild is starting.'),
+      'title' => $this->t('Processing OAI rebuild from queue.'),
+      'init_message' => $this->t('OAI rebuild from queue is starting.'),
       'progress_message' => $this->t('Processed @current out of @total.'),
       'error_message' => $this->t('OAI rebuild has encountered an error.'),
     ];
