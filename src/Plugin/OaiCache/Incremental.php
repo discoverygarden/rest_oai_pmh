@@ -119,6 +119,7 @@ class Incremental extends OaiCacheBase implements ContainerFactoryPluginInterfac
 
     if ($entity->getEntityTypeId() === 'view') {
       $this->updateViews($entity);
+      return;
     }
 
     if (!$this->validOaiEntity($entity)) {
@@ -181,12 +182,12 @@ class Incremental extends OaiCacheBase implements ContainerFactoryPluginInterfac
           unset($oai_view_displays[$deleted_display]);
         }
         $this->settings->set('view_displays', $oai_view_displays)->save();
-        // Message that the records need to be rebuilt and point them to the
-        // admin form as opposed to doing things inline in the view.
-        $this->messenger->addStatus($this->t('The OAI-PMH records need to be rebuilt. Please visit the <a href=":url">OAI-PMH settings</a> to rebuild the records.',
-          [':url' => '/admin/config/services/rest/oai-pmh/queue']
-        ));
       }
+      // Message that the records may need to be rebuilt and point them to the
+      // admin form as opposed to doing things inline in the view.
+      $this->messenger->addStatus($this->t('The OAI-PMH records may need to be rebuilt. Please visit the <a href=":url">OAI-PMH settings</a> to rebuild the records if changes have occurred to the filters or display options.',
+        [':url' => '/admin/config/services/rest/oai-pmh/queue']
+      ));
     }
   }
 
@@ -274,6 +275,9 @@ class Incremental extends OaiCacheBase implements ContainerFactoryPluginInterfac
           $set_entity_storage,
         ] = rest_oai_pmh_determine_set_inclusion($contextual_filter);
         if ($set_entity_type) {
+          // Presence of a set_entity_type indicates that a contextual filter
+          // is being used for the display.
+          $has_set = TRUE;
           $entity_type = $contextual_filter->definition['entity_type'];
           $field = $contextual_filter->definition['field_name'];
           $column = $contextual_filter->definition['field'];
@@ -297,7 +301,6 @@ class Incremental extends OaiCacheBase implements ContainerFactoryPluginInterfac
                 ->fetchField();
               if ($set_existence) {
                 $this->upsertSetMembership($entity, $reference);
-                $has_set = TRUE;
                 $valid_set = TRUE;
               }
               else {
@@ -321,7 +324,6 @@ class Incremental extends OaiCacheBase implements ContainerFactoryPluginInterfac
                       'view_display' => $view_display,
                     ]);
                     $this->upsertSetMembership($entity, $set_id);
-                    $has_set = TRUE;
                     $valid_set = TRUE;
                   }
                 }
