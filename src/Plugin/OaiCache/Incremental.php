@@ -103,7 +103,7 @@ class Incremental extends OaiCacheBase implements ContainerFactoryPluginInterfac
       $container->get('database'),
       $container->get('datetime.time'),
       $container->get('entity_type.manager'),
-      $container->get('config.factory')->get('rest_oai_pmh.settings'),
+      $container->get('config.factory')->getEditable('rest_oai_pmh.settings'),
       $container->get('messenger'),
     );
   }
