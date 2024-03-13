@@ -210,6 +210,11 @@ class Incremental extends OaiCacheBase implements ContainerFactoryPluginInterfac
       foreach ($view_displays as $view_display) {
         [$view_id, $display_id] = explode(':', $view_display);
         $view = Views::getView($view_id);
+        // If settings for the module are disjoint with the view's existence
+        // skip any additional checks.
+        if (!$view) {
+          continue;
+        }
         $view->setDisplay($display_id);
         // See if the entity type from $entity is used by the display in the
         // view.
