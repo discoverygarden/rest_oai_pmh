@@ -156,7 +156,7 @@ class GenerateBatch {
       $sandbox['set_entity_type'] = $set_entity_type;
       $sandbox['query'] = $query;
       $total = $query->countQuery()->execute()->fetchField();
-      if ($total === 0) {
+      if ($total == 0) {
         $context['message'] = $this->t('Set has no records to process.');
         $context['finished'] = 1;
         return;
