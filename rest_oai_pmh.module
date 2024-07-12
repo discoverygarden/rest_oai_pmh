@@ -445,7 +445,7 @@ function rest_oai_pmh_is_valid_entity_type($entity_type) {
 SELECT 1
 FROM {rest_oai_pmh_record} r
 WHERE r.entity_type = :entity_type
-UNION
+UNION ALL
 SELECT 1
 FROM {rest_oai_pmh_set} s
 WHERE s.entity_type = :entity_type
