@@ -44,6 +44,8 @@ function rest_oai_pmh_schema() {
     'primary key' => ['entity_type', 'entity_id'],
     'indexes' => [
       'entity_type' => ['entity_type'],
+      'created_ts' => ['created'],
+      'changed_ts' => ['changed'],
     ],
   ];
 
@@ -242,6 +244,18 @@ function rest_oai_pmh_update_8007() {
         'length' => 32,
         'not null' => TRUE,
       ],
+      'created' => [
+        'description' => 'A timestamp indicating when the record was created',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'changed' => [
+        'description' => 'A timestamp indicating when the record was last changed',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
     ],
   ];
   $schema['rest_oai_pmh_set'] = [
@@ -278,6 +292,8 @@ function rest_oai_pmh_update_8007() {
   $indexes = [
     'rest_oai_pmh_record' => [
       'entity_type' => ['entity_type'],
+      'created_ts' => ['created'],
+      'changed_ts' => ['changed'],
     ],
     'rest_oai_pmh_member' => [
       'entity_type' => ['entity_type'],
