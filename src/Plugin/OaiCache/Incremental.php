@@ -218,7 +218,7 @@ class Incremental extends OaiCacheBase implements ContainerFactoryPluginInterfac
         $view->setDisplay($display_id);
         // See if the entity type from $entity is used by the display in the
         // view.
-        if ($view->getBaseEntityType()->id() === $entity->getEntityTypeId()) {
+        if (($view_entity_type = $view->getBaseEntityType()) && $view_entity_type->id() === $entity->getEntityTypeId()) {
           $valid = TRUE;
           break;
         }
