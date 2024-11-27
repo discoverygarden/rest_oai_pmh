@@ -5,6 +5,7 @@ namespace Drupal\rest_oai_pmh\Plugin\rest\resource;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\rest\Plugin\ResourceBase;
 use Drupal\rest\ResourceResponse;
+use Drupal\rest_oai_pmh\Plugin\OaiMetadataMapInterface;
 use Psr\Log\LoggerInterface;
 use Drupal\Core\Config\ImmutableConfig;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -215,7 +216,6 @@ class OaiPmh extends ResourceBase {
 
     // Read the config settings for this endpoint
     // and set some properties for this class from the config.
-    $config = \Drupal::config('rest_oai_pmh.settings');
     $fields = [
       'bundle' => 'bundle',
       'view_displays' => 'viewDisplays',
@@ -577,14 +577,15 @@ class OaiPmh extends ResourceBase {
     // Process the transformation to isolate any early rendering.
     $context = new RenderContext();
     $result = \Drupal::service('renderer')->executeInRenderContext(
-          $context, function () {
+          $context,
+          function () {
               $mapping_plugin = $this->getMetadataPlugin($this->metadataPrefix);
               $record = $mapping_plugin->transformRecord($this->entity);
               $metadata = $mapping_plugin->getMetadataWrapper();
               $wrapper_key = array_keys($metadata)[0];
               $metadata[$wrapper_key]['metadata-xml'] = trim($record);
               return $metadata;
-          }
+          },
       );
     return $result;
   }
@@ -848,6 +849,10 @@ class OaiPmh extends ResourceBase {
 
   /**
    * Returns the configured plugin associated with a given metadata prefix.
+   *
+   * @return false|\Drupal\rest_oai_pmh\Plugin\OaiMetadataMapInterface
+   *   The plugin for the given prefix if there is one; otherwise, boolean
+   *   FALSE.
    */
   protected function getMetadataPlugin(string $metadata_prefix) {
     if (empty($this->metadataMapPlugins[$metadata_prefix])) {
