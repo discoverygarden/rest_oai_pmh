@@ -13,6 +13,7 @@ use Drupal\Core\Url;
 use Drupal\Core\Routing\RouteMatchInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Queue\SuspendQueueException;
+use Drupal\Core\Utility\Error;
 
 /**
  * Implements hook_help().
