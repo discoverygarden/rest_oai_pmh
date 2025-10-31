@@ -550,7 +550,7 @@ class OaiPmh extends ResourceBase {
 
     // If the entity being exposed to OAI has a changed field.
     // print that in the header.
-    if ($this->entity->hasField('changed')) {
+    if (!is_bool($this->entity) && $this->entity->hasField('changed')) {
       $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
     }
 
@@ -571,6 +571,10 @@ class OaiPmh extends ResourceBase {
   protected function getRecordMetadata() {
     if (empty($this->metadataPrefix)) {
       $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
+    }
+
+    if (is_bool($this->entity)) {
+      return;
     }
 
     // Transform the record with the relevant plugin.
