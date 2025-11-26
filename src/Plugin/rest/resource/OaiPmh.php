@@ -585,10 +585,14 @@ class OaiPmh extends ResourceBase {
           function () {
               $mapping_plugin = $this->getMetadataPlugin($this->metadataPrefix);
               $record = $mapping_plugin->transformRecord($this->entity);
-              $metadata = $mapping_plugin->getMetadataWrapper();
-              $wrapper_key = array_keys($metadata)[0];
-              $metadata[$wrapper_key]['metadata-xml'] = trim($record);
-              return $metadata;
+              if ($metadata = $mapping_plugin->getMetadataWrapper()) {
+                $wrapper_key = array_keys($metadata)[0];
+                $metadata[$wrapper_key]['metadata-xml'] = trim($record);
+                return $metadata;
+              }
+              return [
+                'metadata-xml' => trim($record),
+              ];
           },
       );
     return $result;
