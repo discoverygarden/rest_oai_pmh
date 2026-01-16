@@ -329,9 +329,10 @@ class OaiPmh extends ResourceBase {
         // If we do not have any entries in the cached table,
         // the cache needs rebuilt.
         // Do so now instead of waiting on Drupal cron to avoid empty results.
-        if (\Drupal::database()
-            ->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')
-            ->fetchField() == 0) {
+        $record_count = (int) \Drupal::database()
+          ->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')
+          ?->fetchField();
+        if ($record_count === 0) {
           if ((getenv('REST_OAI_PMH__REST_PREFLIGHT__INLINE_REBUILD') ?: 'true') === 'true') {
             $this->logger->warning('Empty record set; attempting to rebuild in-line. This will probably fail with large sets of records.');
             $context = new RenderContext();
