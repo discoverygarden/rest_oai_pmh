@@ -342,7 +342,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       ->set('cache_technique', $form_state->getValue('cache_technique'))
       ->save();
 
-    rest_oai_pmh_cache_views($rebuild_views);
+    rest_oai_pmh_cache_views($rebuild_views, batch: TRUE);
   }
 
   /**
