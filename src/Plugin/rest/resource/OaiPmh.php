@@ -550,7 +550,7 @@ class OaiPmh extends ResourceBase {
 
     // If the entity being exposed to OAI has a changed field.
     // print that in the header.
-    if ($this->entity->hasField('changed')) {
+    if (!is_bool($this->entity) && $this->entity->hasField('changed')) {
       $header['datestamp'] = gmdate(self::OAI_DATE_FORMAT, $this->entity->changed->value);
     }
 
@@ -573,6 +573,10 @@ class OaiPmh extends ResourceBase {
       $this->metadataPrefix = $this->currentRequest->get('metadataPrefix');
     }
 
+    if (is_bool($this->entity)) {
+      return;
+    }
+
     // Transform the record with the relevant plugin.
     // Process the transformation to isolate any early rendering.
     $context = new RenderContext();
@@ -581,10 +585,14 @@ class OaiPmh extends ResourceBase {
           function () {
               $mapping_plugin = $this->getMetadataPlugin($this->metadataPrefix);
               $record = $mapping_plugin->transformRecord($this->entity);
-              $metadata = $mapping_plugin->getMetadataWrapper();
-              $wrapper_key = array_keys($metadata)[0];
-              $metadata[$wrapper_key]['metadata-xml'] = trim($record);
-              return $metadata;
+              if ($metadata = $mapping_plugin->getMetadataWrapper()) {
+                $wrapper_key = array_keys($metadata)[0];
+                $metadata[$wrapper_key]['metadata-xml'] = trim($record);
+                return $metadata;
+              }
+              return [
+                'metadata-xml' => trim($record),
+              ];
           },
       );
     return $result;
