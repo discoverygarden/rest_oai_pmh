@@ -72,7 +72,7 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
    *   The router builder service.
    */
   public function __construct(ConfigFactoryInterface $config_factory, EntityTypeManagerInterface $entity_type_manager, ModuleHandlerInterface $module_handler, PathValidatorInterface $path_validator, CacheBackendInterface $cache_discovery, RouteBuilder $router_builder) {
-    parent::__construct($config_factory);
+    $this->setConfigFactory($config_factory);
 
     $this->entityTypeManager = $entity_type_manager;
     $this->moduleHandler = $module_handler;
@@ -342,7 +342,9 @@ class RestOaiPmhSettingsForm extends ConfigFormBase {
       ->set('cache_technique', $form_state->getValue('cache_technique'))
       ->save();
 
-    rest_oai_pmh_cache_views($rebuild_views);
+    if (!empty($rebuild_views)) {
+      rest_oai_pmh_cache_views($rebuild_views, batch: TRUE);
+    }
   }
 
   /**
