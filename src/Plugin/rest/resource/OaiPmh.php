@@ -3,6 +3,7 @@
 namespace Drupal\rest_oai_pmh\Plugin\rest\resource;
 
 use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\Core\Url;
 use Drupal\rest\Plugin\ResourceBase;
 use Drupal\rest\ResourceResponse;
 use Drupal\rest_oai_pmh\Plugin\OaiMetadataMapInterface;
@@ -324,16 +325,29 @@ class OaiPmh extends ResourceBase {
     // Make sure a valid verb was passed in as a GET parameter
     // if so, call the respective function implemented in this class.
     if (in_array($verb, $verbs)) {
-      // If we do not have any entries in the cached table,
-      // the cache needs rebuilt.
-      // Do so now instead of waiting on Drupal cron to avoid empty results.
-      if (\Drupal::database()->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')->fetchField() == 0) {
-        $context = new RenderContext();
-        \Drupal::service('renderer')->executeInRenderContext(
-              $context, function () {
-                  rest_oai_pmh_rebuild_entries();
+      if ((getenv('REST_OAI_PMH__REST_PREFLIGHT') ?: 'true') === 'true') {
+        // If we do not have any entries in the cached table,
+        // the cache needs rebuilt.
+        // Do so now instead of waiting on Drupal cron to avoid empty results.
+        $record_count = (int) \Drupal::database()
+          ->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')
+          ?->fetchField();
+        if ($record_count === 0) {
+          if ((getenv('REST_OAI_PMH__REST_PREFLIGHT__INLINE_REBUILD') ?: 'true') === 'true') {
+            $this->logger->warning('Empty record set; attempting to rebuild in-line. This will probably fail with large sets of records.');
+            $context = new RenderContext();
+            \Drupal::service('renderer')->executeInRenderContext(
+              $context, static function() {
+                rest_oai_pmh_rebuild_entries();
               }
-          );
+            );
+          }
+          else {
+            $this->logger->warning('Empty record set; please rebuild. Rebuilding might be triggered via {queue_route}', [
+              'queue_route' => Url::fromRoute('rest_oai_pmh.queue')->toString(),
+            ]);
+          }
+        }
       }
       $this->response['request']['@verb'] = $this->verb = $verb;
 

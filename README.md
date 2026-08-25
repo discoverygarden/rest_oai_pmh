@@ -31,6 +31,15 @@ The mapping is how the endpoint will print metadata for the records and sets.
 ![Screenshot of permissions field](https://www.drupal.org/files/project-images/Screen%20Shot%20on%202019-04-24%20at%2011-32-43.png)
 4. Go to the REST OAI-PMH configuration form at /admin/config/services/rest/oai-pmh and supply your system configuration.
 
+### Environment variables
+
+Some environment variables have are referenced to adjust behavior:
+
+| Name | Default | Description                                                                                                                                                                                                                         |
+|------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `REST_OAI_PMH__REST_PREFLIGHT` | 'true'   | Check the number of records in our tables before serving requests against our endpoint. Set to anything other than the string 'true' to disable.                                                                                    |
+| `REST_OAI_PMH__REST_PREFLIGHT__INLINE_REBUILD` | 'true' | If the preflight check is enabled and we determine that there are no records present in our tables, then we will attempt to rebuild the tables before serving the request. Set to anything other than the string 'true' to disable. |
+
 ## MODS
 
 ### Configure

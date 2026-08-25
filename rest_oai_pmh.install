@@ -6,6 +6,7 @@
  */
 
 use Drupal\Core\Database\Database;
+use Drupal\Core\Url;
 
 /**
  * Implements hook_schema().
@@ -312,4 +313,38 @@ function rest_oai_pmh_update_8007() {
     }
   }
 
+}
+
+/**
+ * Implements hook_requirements().
+ */
+function rest_oai_pmh_requirements(string $phase) : array{
+  $requirements = [];
+
+  if ($phase === 'runtime') {
+    $record_count = (int) \Drupal::database()
+      ->query('SELECT COUNT(*) FROM {rest_oai_pmh_record}')
+      ?->fetchField();
+    if ($record_count === 0) {
+      $requirements['rest_oai_pmh__records'] = [
+        'description' => \t('There are no records in REST OAI-PMH tables for any entities in the database. This may be expected for a site with no content, but if there is content that should be harvestable, then it may be necessary to (re)build the tables. Building might be done via <a href=":queue_route">the admin page</a>', [
+          ':queue_route' => Url::fromRoute('rest_oai_pmh.queue')->toString(),
+        ]),
+        'severity' => REQUIREMENT_WARNING,
+      ];
+    }
+    else {
+      $requirements['rest_oai_pmh__records'] = [
+        'description' => \t('There exist records in REST OAI-PMH tables for entities in the database.'),
+        'severity' => REQUIREMENT_OK,
+      ];
+    }
+
+    $requirements['rest_oai_pmh__records'] += [
+      'title' => \t('REST OAI-PMH, record existence'),
+      'value' => $record_count,
+    ];
+  }
+
+  return $requirements;
 }
